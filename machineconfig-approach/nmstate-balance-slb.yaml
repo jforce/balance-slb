@@ -1,0 +1,143 @@
+ovn:
+  bridge-mappings:
+    - localnet: localnet-network
+      bridge: br-ex
+      state: present
+
+dns-resolver:
+  config:
+    search:
+      - aa.xx.yyyy
+      - bb.xx.yyyy
+    server:
+      - x.x.x.x
+      - x.x.x.x
+
+interfaces:
+  # Remove existing Linux bonds
+  - name: bond0
+    type: bond
+    state: absent
+
+  - name: bond1
+    type: bond
+    state: absent
+
+  # br-ex: OVN-Kubernetes external bridge
+  - name: br-ex
+    type: ovs-bridge
+    state: up
+    bridge:
+      allow-extra-patch-ports: true
+      port:
+        - name: br-ex
+        - name: patch-ex-to-phy0
+    ovs-db:
+      external_ids:
+        bridge-uplink: "patch-ex-to-phy0"
+
+  # br-ex internal interface — carries the node IP
+  - name: br-ex
+    type: ovs-interface
+    state: up
+    copy-mac-from: enp7s0f0
+    ipv4:
+      address:
+        - ip: x.x.x.x              # <-- per-node IP
+          prefix-length: 26
+      dhcp: false
+      enabled: true
+    ipv6:
+      enabled: false
+
+  # br-phy0: auxiliary bridge for primary network bond
+  - name: br-phy0
+    type: ovs-bridge
+    state: up
+    ipv4:
+      enabled: false
+      dhcp: false
+    ipv6:
+      enabled: false
+      dhcp: false
+    bridge:
+      allow-extra-patch-ports: true
+      port:
+        - name: patch-phy0-to-ex
+        - name: ovs-bond0
+          link-aggregation:
+            mode: balance-slb
+            port:
+              - name: enp7s0f0
+              - name: enp2s0f0
+
+  # Patch ports connecting br-ex <-> br-phy0
+  - name: patch-ex-to-phy0
+    type: ovs-interface
+    state: up
+    patch:
+      peer: patch-phy0-to-ex
+
+  - name: patch-phy0-to-ex
+    type: ovs-interface
+    state: up
+    patch:
+      peer: patch-ex-to-phy0
+
+  # br-phy1: auxiliary bridge for secondary network bond
+  - name: br-phy1
+    type: ovs-bridge
+    state: up
+    ipv4:
+      enabled: false
+      dhcp: false
+    ipv6:
+      enabled: false
+      dhcp: false
+    bridge:
+      port:
+        - name: ovs-bond1
+          link-aggregation:
+            mode: balance-slb
+            port:
+              - name: enp7s0f1
+              - name: enp2s0f1
+
+  # Physical interfaces
+  - name: enp7s0f0
+    type: ethernet
+    state: up
+    ipv4:
+      enabled: false
+    ipv6:
+      enabled: false
+
+  - name: enp2s0f0
+    type: ethernet
+    state: up
+    ipv4:
+      enabled: false
+    ipv6:
+      enabled: false
+
+  - name: enp7s0f1
+    type: ethernet
+    state: up
+    ipv4:
+      enabled: false
+    ipv6:
+      enabled: false
+
+  - name: enp2s0f1
+    type: ethernet
+    state: up
+    ipv4:
+      enabled: false
+    ipv6:
+      enabled: false
+
+routes:
+  config:
+    - destination: 0.0.0.0/0
+      next-hop-address: x.x.x.x
+      next-hop-interface: br-ex
